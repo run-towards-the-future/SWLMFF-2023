@@ -1,0 +1,95 @@
+units	 metal
+dimension 3
+newton on
+processors * * 1
+boundary p p p
+atom_style full
+variable  scale index 1
+variable  x equal ${scale}*12
+variable  y equal ${scale}*6
+variable  r equal ${scale}*9
+variable  nbase   index 3
+variable  nsteps   index 1000
+variable  nslider index 3
+variable  bondlen index 1.438
+variable  layerspc index 3.4
+variable  dumpfile index "run.dump"
+
+#计算晶格所需的临时变量
+variable a3z equal ${layerspc}/${bondlen}
+variable sqrt3 equal sqrt(3.0)
+variable frac1_6 equal 1.0/6.0
+variable frac2_3 equal 2.0/3.0
+variable frac1_24 equal 1.0/24.0
+variable base_top equal ${nbase}-0.9
+variable slider_bottom equal ${nbase}-0.1
+variable slider_top    equal ${nbase}+${nslider}-0.9
+if "${slider_top}<${slider_bottom}" then "variable slider_top    equal ${slider_bottom}"
+variable n_total       equal ${nbase}+${nslider}
+variable vac_top       equal ${n_total}+3
+variable vac_bottom    equal -3
+#--------------Create Atoms----------------
+#底层晶格，无旋转
+lattice custom ${bondlen} a1 ${sqrt3}  0  0 &
+                          a2 0 3 0 &
+                          a3 0 0 ${a3z} &
+		          basis 0 0 0  basis 0.5 ${frac1_6} 0 &
+	      	          basis 0.5 0.5 0 basis 0 ${frac2_3} 0
+
+region base block  -$x $x -$y $y 0 ${base_top} units lattice
+region slider  cylinder z 0 0 $r ${slider_bottom} ${slider_top} units lattice
+region vac block  -$x $x -$y $y ${vac_bottom} ${vac_top} units lattice
+region all union 3 base slider vac
+create_box 1 all
+create_atoms 1 region base
+
+#滑块晶格，旋转90度，中心错位为空位
+lattice custom ${bondlen} origin ${frac1_24} ${frac1_6}  0 &
+                          a1 3  0  0 &
+                          a2 0 ${sqrt3} 0 &
+                          a3 0 0 ${a3z} &
+		          basis 0 0 0  basis ${frac1_6} 0.5 0 &
+	      	          basis 0.5 0.5 0 basis ${frac2_3} 0 0
+
+create_atoms 1 region slider
+lattice custom ${bondlen} a1 ${sqrt3}  0  0 &
+                          a2 0 3 0 &
+                          a3 0 0 ${a3z} &
+		          basis 0 0 0  basis 0.5 ${frac1_6} 0 &
+	      	          basis 0.5 0.5 0 basis 0 ${frac2_3} 0
+
+
+#标记每层的mol
+label mark_mols
+variable ilayer loop ${n_total}
+variable ilayerz equal ${ilayer}-1
+variable ilayer_bottom equal ${ilayerz}-0.1
+variable ilayer_top equal ${ilayerz}+0.1
+region layer${ilayerz} block -$x $x -$y $y ${ilayer_bottom} ${ilayer_top} units lattice
+group layer${ilayerz} region layer${ilayerz}
+set group layer${ilayerz} mol ${ilayerz}
+#set group group${ilayerz} type ${ilayer}
+next ilayer
+jump SELF mark_mols
+
+
+mass * 12.0107
+
+#pair和邻接表
+pair_style    lmff/sunway 16.0 1
+pair_coeff    * *  BNCH.ILP C BNC.tersoff C
+
+#pair_style       hybrid/overlay  tersoff  ilp/graphene/hbn 16.0 1
+#pair_coeff		* * tersoff 	BNC.tersoff C
+#pair_coeff		* * ilp/graphene/hbn   BNCH.ILP  C
+#
+
+neighbor 2.0 bin
+neigh_modify delay 1 check yes one 6000
+timestep 0.5e-3
+
+fix		4   	all     nve
+
+thermo_style	custom step temp epair emol etotal press pxx pyy spcpu cpuremain
+thermo		100
+run ${nsteps}
